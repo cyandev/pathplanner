@@ -13,8 +13,7 @@ import 'waypoint.dart';
 
 class RobotPath {
   List<Waypoint> waypoints;
-  num? maxVelocity;
-  num? maxAcceleration;
+  RobotConstraints constraints = RobotConstraints.defaultConstraints();
   bool? isReversed;
   late String name;
   late Trajectory generatedTrajectory;
@@ -23,8 +22,7 @@ class RobotPath {
   RobotPath(
       {required this.waypoints,
       this.name = 'New Path',
-      this.maxVelocity,
-      this.maxAcceleration,
+      required this.constraints,
       this.isReversed,
       this.markers = const []});
 
@@ -62,7 +60,8 @@ class RobotPath {
     generateTrajectory();
   }
 
-  RobotPath.fromJson(Map<String, dynamic> json)
+  RobotPath.fromJson(
+      Map<String, dynamic> json) //TODO: fix loading from og pathplanner
       : waypoints = [],
         markers = [] {
     for (Map<String, dynamic> pointJson in json['waypoints']) {
@@ -75,9 +74,15 @@ class RobotPath {
         markers.add(marker);
       }
     }
+    constraints = RobotConstraints.defaultConstraints();
 
-    maxVelocity = json['maxVelocity'];
-    maxAcceleration = json['maxAcceleration'];
+    constraints.maxVelocity = json['maxVelocity']!;
+    constraints.maxAccelerationPossible = json['maxAcceleration'];
+    constraints.kA = json['kA'];
+    constraints.kV = json['kV'];
+    constraints.kS = json['kS'];
+    constraints.radius = json['radius'];
+
     isReversed = json['isReversed'];
 
     // Validate some stuff to avoid loading invalid files
@@ -216,7 +221,12 @@ class RobotPath {
       }
     }
 
-    if (maxVelocity == null && maxAcceleration == null && isReversed == null) {
+    if (constraints.maxVelocity == null &&
+        constraints.maxAccelerationPossible == null &&
+        constraints.kA == null &&
+        constraints.kV == null &&
+        constraints.kS == null &&
+        isReversed == null) {
       return {
         'waypoints': waypoints,
         'markers': savedMarkers,
@@ -224,8 +234,12 @@ class RobotPath {
     } else {
       return {
         'waypoints': waypoints,
-        'maxVelocity': maxVelocity,
-        'maxAcceleration': maxAcceleration,
+        'maxVelocity': constraints.maxVelocity,
+        'maxAcceleration': constraints.maxAccelerationPossible,
+        'kA': constraints.kA,
+        'kV': constraints.kV,
+        'kS': constraints.kS,
+        'radius': constraints.radius,
         'isReversed': isReversed,
         'markers': savedMarkers,
       };

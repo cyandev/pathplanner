@@ -65,7 +65,7 @@ class Trajectory {
     for (int i = 0; i < splitPaths.length; i++) {
       List<Waypoint> splitPath = splitPaths[i];
       trajectories.add(await generateSingleTrajectory(
-          splitPath, path.maxVelocity, path.maxAcceleration, shouldReverse));
+          splitPath, path.constraints, shouldReverse));
 
       if (splitPath[splitPath.length - 1].isReversal) {
         shouldReverse = !shouldReverse;
@@ -80,11 +80,11 @@ class Trajectory {
   }
 
   static Future<Trajectory> generateSingleTrajectory(List<Waypoint> pathPoints,
-      num? maxVel, num? maxAccel, bool reversed) async {
+      RobotConstraints constraints, bool reversed) async {
     List<TrajectoryState> joined =
-        joinSplines(pathPoints, maxVel ?? 4.0, Trajectory.resolution);
-    calculateMaxVel(joined, maxVel ?? 4.0, maxAccel ?? 3.0, reversed);
-    calculateVelocity(joined, pathPoints, maxAccel ?? 3.0);
+        joinSplines(pathPoints, constraints, Trajectory.resolution);
+    calculateMaxVel(joined, constraints, reversed);
+    calculateVelocity(joined, pathPoints, constraints);
     recalculateValues(joined, reversed);
 
     return Trajectory(joined);
@@ -158,8 +158,21 @@ class Trajectory {
     return length;
   }
 
-  static void calculateMaxVel(
-      List<TrajectoryState> states, num maxVel, num maxAccel, bool reversed) {
+  static num calculateMaxAccel(
+      num velocity, num angularVelocity, RobotConstraints constraints) {
+    return max(
+        0,
+        min(
+            constraints.maxAccelerationPossible,
+            (12 * constraints.maxEffort -
+                    constraints.kS -
+                    (velocity * constraints.kV) -
+                    (angularVelocity * constraints.radius * constraints.kV)) /
+                constraints.kA));
+  }
+
+  static void calculateMaxVel(List<TrajectoryState> states,
+      RobotConstraints constraints, bool reversed) {
     for (int i = 0; i < states.length; i++) {
       num radius;
       if (i == states.length - 1) {
@@ -176,29 +189,38 @@ class Trajectory {
 
       if (!radius.isFinite || radius.isNaN) {
         states[i].velocityMetersPerSecond =
-            min(maxVel, states[i].velocityMetersPerSecond);
+            min(constraints.maxVelocity, states[i].velocityMetersPerSecond);
       } else {
         states[i].curveRadius = radius;
-        num maxVCurve = sqrt(maxAccel * radius.abs());
+        //acceleration is piecewise, max is lowest velocity
+        num maxVCurve = min(
+            sqrt(constraints.maxAccelerationPossible * radius.abs()),
+            sqrt((12 * constraints.maxEffort - constraints.kS) * radius.abs() +
+                    pow(constraints.kV * radius.abs() / 2, 2)) -
+                constraints.kV * radius / 2); //TODO: test
         states[i].velocityMetersPerSecond =
             min(maxVCurve, states[i].velocityMetersPerSecond);
       }
     }
   }
 
-  static void calculateVelocity(
-      List<TrajectoryState> states, List<Waypoint> pathPoints, num maxAccel) {
+  static void calculateVelocity(List<TrajectoryState> states,
+      List<Waypoint> pathPoints, RobotConstraints constraints) {
     if (pathPoints[0].velOverride == null) {
       states[0].velocityMetersPerSecond = 0;
-      states[0].accelerationMetersPerSecondSq = maxAccel;
+      states[0].accelerationMetersPerSecondSq =
+          constraints.maxAccelerationPossible;
     }
 
     for (int i = 1; i < states.length; i++) {
       num v0 = states[i - 1].velocityMetersPerSecond;
+      num omega0 = states[i - 1].holonomicAngularVelocity;
       num deltaPos = states[i].deltaPos;
 
       if (deltaPos > 0) {
-        num vMax = sqrt(((v0 * v0) + (2 * maxAccel * deltaPos)).abs());
+        num vMax = sqrt(((v0 * v0) +
+                (2 * calculateMaxAccel(v0, omega0, constraints) * deltaPos))
+            .abs());
         states[i].velocityMetersPerSecond =
             min(vMax, states[i].velocityMetersPerSecond);
       } else {
@@ -212,9 +234,12 @@ class Trajectory {
     }
     for (int i = states.length - 2; i > 1; i--) {
       num v0 = states[i + 1].velocityMetersPerSecond;
+      num omega0 = states[i + 1].holonomicAngularVelocity;
       num deltaPos = states[i + 1].deltaPos;
 
-      double vMax = sqrt(((v0 * v0) + (2 * maxAccel * deltaPos)).abs());
+      double vMax = sqrt(((v0 * v0) +
+              (2 * calculateMaxAccel(v0, omega0, constraints) * deltaPos))
+          .abs());
       states[i].velocityMetersPerSecond =
           min(vMax, states[i].velocityMetersPerSecond);
     }
@@ -276,7 +301,7 @@ class Trajectory {
   }
 
   static List<TrajectoryState> joinSplines(
-      List<Waypoint> pathPoints, num maxVel, double step) {
+      List<Waypoint> pathPoints, RobotConstraints constraints, double step) {
     List<TrajectoryState> states = [];
     int numSplines = pathPoints.length - 1;
 
@@ -330,6 +355,8 @@ class Trajectory {
           TrajectoryState s2 = state;
           double hypot = s1.translationMeters.distanceTo(s2.translationMeters);
           state.deltaPos = hypot;
+          state.deltaHolonomicRot = MathUtil.inputModulus(
+              s2.holonomicRotation - s1.holonomicRotation, -180, 180);
 
           num heading = atan2(s1.translationMeters.y - s2.translationMeters.y,
                   s1.translationMeters.x - s2.translationMeters.x) +
@@ -343,11 +370,19 @@ class Trajectory {
         }
 
         if (t == 0.0) {
-          state.velocityMetersPerSecond = startPoint.velOverride ?? maxVel;
+          state.velocityMetersPerSecond =
+              startPoint.velOverride ?? constraints.maxVelocity;
         } else if (t == 1.0) {
-          state.velocityMetersPerSecond = endPoint.velOverride ?? maxVel;
+          state.velocityMetersPerSecond =
+              endPoint.velOverride ?? constraints.maxVelocity;
         } else {
-          state.velocityMetersPerSecond = maxVel;
+          state.velocityMetersPerSecond = constraints.maxVelocity *
+              state.deltaPos /
+              (state.deltaPos +
+                  state.deltaHolonomicRot.abs() *
+                      pi /
+                      180 *
+                      constraints.radius);
         }
 
         states.add(state);
@@ -373,6 +408,18 @@ class Trajectory {
   }
 }
 
+class RobotConstraints {
+  num kA = 0.12872; // V / (m/s^2)
+  num kV = 2.32216; // V / (m/s)
+  num kS = 0.28006; // V
+  num maxAccelerationPossible = 9.8; //m/s^2
+  num maxVelocity = 4; //m/s
+  num maxEffort = .8; // fractional effort [0,1]
+  num radius = .55; //m, distance from module to center
+
+  RobotConstraints.defaultConstraints();
+}
+
 class TrajectoryState {
   num timeSeconds = 0.0;
   num velocityMetersPerSecond = 0.0;
@@ -386,6 +433,7 @@ class TrajectoryState {
 
   num curveRadius = 0.0;
   num deltaPos = 0.0;
+  num deltaHolonomicRot = 0.0;
 
   TrajectoryState interpolate(TrajectoryState endVal, num t) {
     TrajectoryState lerpedState = TrajectoryState();
@@ -433,6 +481,8 @@ class TrajectoryState {
           'y': translationMeters.y,
         },
       },
+      'deltaPos': deltaPos,
+      'deltaHolonomicRot': deltaHolonomicRot,
       'velocity': velocityMetersPerSecond,
       'acceleration': accelerationMetersPerSecondSq,
       'curvature': curvatureRadPerMeter.isFinite ? curvatureRadPerMeter : 0,

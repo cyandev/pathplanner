@@ -61,14 +61,15 @@ class _GeneratorSettingsCardState extends State<GeneratorSettingsCard> {
                   children: [
                     _buildTextField(
                       context,
-                      widget.path.maxVelocity != null
-                          ? _getController(
-                              widget.path.maxVelocity!.toStringAsFixed(2))
+                      widget.path.constraints.maxVelocity != null
+                          ? _getController(widget.path.constraints.maxVelocity!
+                              .toStringAsFixed(2))
                           : _getController('4.0'),
                       'Max Velocity',
+                      105,
                       onSubmitted: (val) {
                         setState(() {
-                          widget.path.maxVelocity = val;
+                          widget.path.constraints.maxVelocity = val;
                           widget.onShouldSave();
                         });
                       },
@@ -76,14 +77,86 @@ class _GeneratorSettingsCardState extends State<GeneratorSettingsCard> {
                     const SizedBox(width: 12),
                     _buildTextField(
                       context,
-                      widget.path.maxAcceleration != null
-                          ? _getController(
-                              widget.path.maxAcceleration!.toStringAsFixed(2))
+                      widget.path.constraints.maxAccelerationPossible != null
+                          ? _getController(widget
+                              .path.constraints.maxAccelerationPossible!
+                              .toStringAsFixed(2))
                           : _getController('3.0'),
                       'Max Accel',
+                      105,
                       onSubmitted: (val) {
                         setState(() {
-                          widget.path.maxAcceleration = val;
+                          widget.path.constraints.maxAccelerationPossible = val;
+                          widget.onShouldSave();
+                        });
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.max,
+                  children: [
+                    _buildTextField(
+                      context,
+                      widget.path.constraints.kA != null
+                          ? _getController(
+                              widget.path.constraints.kA!.toStringAsFixed(2))
+                          : _getController('3.0'),
+                      'kA',
+                      48.5,
+                      onSubmitted: (val) {
+                        setState(() {
+                          widget.path.constraints.kA = val;
+                          widget.onShouldSave();
+                        });
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    _buildTextField(
+                      context,
+                      widget.path.constraints.kV != null
+                          ? _getController(
+                              widget.path.constraints.kV!.toStringAsFixed(2))
+                          : _getController('3.0'),
+                      'kV',
+                      48.5,
+                      onSubmitted: (val) {
+                        setState(() {
+                          widget.path.constraints.kV = val;
+                          widget.onShouldSave();
+                        });
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    _buildTextField(
+                      context,
+                      widget.path.constraints.kS != null
+                          ? _getController(
+                              widget.path.constraints.kS!.toStringAsFixed(2))
+                          : _getController('3.0'),
+                      'kS',
+                      48.5,
+                      onSubmitted: (val) {
+                        setState(() {
+                          widget.path.constraints.kS = val;
+                          widget.onShouldSave();
+                        });
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    _buildTextField(
+                      context,
+                      widget.path.constraints.radius != null
+                          ? _getController(widget.path.constraints.radius!
+                              .toStringAsFixed(2))
+                          : _getController('3.0'),
+                      'Radius',
+                      48.5,
+                      onSubmitted: (val) {
+                        setState(() {
+                          widget.path.constraints.radius = val;
                           widget.onShouldSave();
                         });
                       },
@@ -133,13 +206,13 @@ class _GeneratorSettingsCardState extends State<GeneratorSettingsCard> {
     );
   }
 
-  Widget _buildTextField(
-      BuildContext context, TextEditingController? controller, String label,
+  Widget _buildTextField(BuildContext context,
+      TextEditingController? controller, String label, double width,
       {bool? enabled = true, ValueChanged? onSubmitted}) {
     ColorScheme colorScheme = Theme.of(context).colorScheme;
 
     return SizedBox(
-      width: 105,
+      width: width,
       height: 35,
       child: TextField(
         onSubmitted: (val) {
